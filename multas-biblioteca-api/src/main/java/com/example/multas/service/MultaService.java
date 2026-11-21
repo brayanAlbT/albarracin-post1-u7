@@ -1,9 +1,13 @@
 ﻿package com.example.multas.service;
 
+import com.example.multas.domain.PagoRechazadoException;
+import com.example.multas.domain.ResultadoPago;
+import com.example.multas.domain.port.PasarelaPagoPort;
 import com.example.multas.model.EstadoMulta;
 import com.example.multas.model.LimiteMultasPendientesException;
 import com.example.multas.model.Multa;
 import com.example.multas.model.MultaNotFoundException;
+import com.example.multas.model.MultaYaPagadaException;
 import com.example.multas.repository.MultaRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,9 +20,11 @@ public class MultaService {
 
     private static final int LIMITE_MULTAS_PENDIENTES = 3;
     private final MultaRepository multaRepository;
+    private final PasarelaPagoPort pasarelaPagoPort; // Puerto de salida inyectado
 
-    public MultaService(MultaRepository multaRepository) {
+    public MultaService(MultaRepository multaRepository, PasarelaPagoPort pasarelaPagoPort) {
         this.multaRepository = multaRepository;
+        this.pasarelaPagoPort = pasarelaPagoPort;
     }
 
     @Transactional(readOnly = true)
@@ -38,9 +44,6 @@ public class MultaService {
     }
 
     public Multa generar(String estudianteId, String concepto, int diasAtraso) {
-        // Regla de negocio 1 — sí requiere datos: no permitir que un
-        // estudiante acumule más del límite de multas pendientes (ver
-        // Punto de decisión 2).
         long pendientes = multaRepository.countByEstudianteIdAndEstado(estudianteId, EstadoMulta.PENDIENTE);
         if (pendientes >= LIMITE_MULTAS_PENDIENTES) {
             throw new LimiteMultasPendientesException(
@@ -51,13 +54,28 @@ public class MultaService {
         multa.setEstudianteId(estudianteId);
         multa.setConcepto(concepto);
         multa.setDiasAtraso(diasAtraso);
-        multa.setMonto(Multa.calcularMonto(diasAtraso)); // regla de negocio 2 — ver Punto de decisión 1
+        multa.setMonto(Multa.calcularMonto(diasAtraso));
         return multaRepository.save(multa);
     }
 
     public Multa pagarEnVentanilla(Long id) {
         Multa multa = buscarPorId(id);
         multa.marcarComoPagada("VENTANILLA");
+        return multaRepository.save(multa);
+    }
+
+    public Multa pagarConPasarela(Long id) {
+        Multa multa = buscarPorId(id);
+        if (multa.getEstado() == EstadoMulta.PAGADA) {
+            throw new MultaYaPagadaException("La multa " + id + " ya fue pagada el " + multa.getFechaPago());
+        }
+
+        ResultadoPago resultado = pasarelaPagoPort.procesar(multa);
+        if (!resultado.exitoso()) {
+            throw new PagoRechazadoException(resultado.mensaje());
+        }
+
+        multa.marcarComoPagada(resultado.proveedor());
         return multaRepository.save(multa);
     }
 }

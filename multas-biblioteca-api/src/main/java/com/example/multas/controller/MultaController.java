@@ -3,8 +3,6 @@
 import com.example.multas.model.Multa;
 import com.example.multas.service.MultaService;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
@@ -44,5 +42,10 @@ public class MultaController {
     @PatchMapping("/{id}/pagar")
     public Multa pagarEnVentanilla(@PathVariable Long id) {
         return multaService.pagarEnVentanilla(id);
+    }
+
+    @PostMapping("/{id}/pagar-en-linea")
+    public Multa pagarEnLinea(@PathVariable Long id) {
+        return multaService.pagarConPasarela(id);
     }
 }
